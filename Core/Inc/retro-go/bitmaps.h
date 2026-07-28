@@ -24,6 +24,8 @@ extern const retro_logo_image header_pce;
 extern const retro_logo_image header_sms;
 extern const retro_logo_image header_gw;
 extern const retro_logo_image header_msx;
+extern const retro_logo_image header_amiga;
+extern const retro_logo_image pad_amiga;
 extern const retro_logo_image header_wsv;
 extern const retro_logo_image header_gen;
 extern const retro_logo_image header_a7800;

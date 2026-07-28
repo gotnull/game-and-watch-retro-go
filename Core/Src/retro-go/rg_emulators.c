@@ -18,6 +18,7 @@
 #include "main_smsplusgx.h"
 #include "main_pce.h"
 #include "main_msx.h"
+#include "main_amiga.h"
 #include "main_gw.h"
 #include "main_wsv.h"
 #include "main_gwenesis.h"
@@ -536,6 +537,16 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
       SCB_CleanDCache_by_Addr((uint32_t *)&__RAM_EMU_START__, (size_t)&_OVERLAY_MSX_SIZE);
       app_main_msx(load_state, start_paused, save_slot);
 #endif
+    } else if(strcmp(emu->system_name, "Amiga 500") == 0) {
+#ifdef ENABLE_EMULATOR_AMIGA
+      /*
+       * No overlay copy, unlike every other core. The Amiga machine's Chip
+       * RAM will own the overlay arena (and more); the core's code executes
+       * in place from external flash exactly as the SNES ports do. Slice 1
+       * is a stub proving the launch path; the machine arrives in slice 3.
+       */
+      app_main_amiga(load_state, start_paused, save_slot);
+#endif
     } else if(strcmp(emu->system_name, "Watara Supervision") == 0) {
 #ifdef ENABLE_EMULATOR_WSV
       memcpy(&__RAM_EMU_START__, &_OVERLAY_WSV_LOAD_START, (size_t)&_OVERLAY_WSV_SIZE);
@@ -636,6 +647,10 @@ void emulators_init()
 
 #ifdef ENABLE_EMULATOR_MSX
     add_emulator("MSX", "msx", "msx", "blueMSX", 0, &pad_msx, &header_msx);
+#endif
+
+#ifdef ENABLE_EMULATOR_AMIGA
+    add_emulator("Amiga 500", "amiga", "adf", "fcamiga", 0, &pad_amiga, &header_amiga);
 #endif
 
 #ifdef ENABLE_EMULATOR_WSV

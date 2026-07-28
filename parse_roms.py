@@ -1188,6 +1188,7 @@ class ROMParser:
             romdef = {}
 
         romdef.setdefault('gb', {})
+        romdef.setdefault('amiga', {})
         romdef.setdefault('nes', {})
         romdef.setdefault('nes_bios', {})
         romdef.setdefault('sms', {})
@@ -1614,6 +1615,27 @@ class ROMParser:
         total_rom_size += rom_size
         total_img_size += img_size
         build_config += "#define ENABLE_EMULATOR_TAMA\n" if rom_size > 0 else ""
+        if system_save_size > larger_save_size : larger_save_size = system_save_size
+
+        # Amiga 500 (fcamiga). The Kickstart ROM is itself the first launchable
+        # entry - booting it with no disk shows the insert-disk screen - and
+        # .adf disks appear beside it. Deliberately NOT compressed: the core
+        # reads both the Kickstart and disk tracks in place from memory-mapped
+        # flash, so the bytes must be the file, not an lzma stream.
+        system_save_size, save_size, rom_size, img_size, current_id, larger_rom_size = self.generate_system(
+            "Core/Src/retro-go/amiga_roms.c",
+            "Amiga 500",
+            "amiga_system",
+            "amiga",
+            ["rom","adf"],
+            "SAVE_AMIGA_",
+            romdef["amiga"],
+            None,
+            current_id
+        )
+        total_save_size += save_size
+        total_rom_size += rom_size
+        build_config += "#define ENABLE_EMULATOR_AMIGA\n" if rom_size > 0 else ""
         if system_save_size > larger_save_size : larger_save_size = system_save_size
 
         total_size = total_save_size + total_rom_size + total_img_size

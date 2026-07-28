@@ -267,6 +267,7 @@ Core/Src/retro-go/rg_rtc.c \
 Core/Src/retro-go/rg_emulators.c \
 Core/Src/retro-go/rom_manager.c \
 Core/Src/porting/odroid_settings.c \
+Core/Src/porting/amiga/main_amiga.c \
 Core/Src/retro-go/i18n/rg_i18n.c \
 Core/Src/retro-go/rg_logos.c
 
@@ -481,6 +482,7 @@ C_INCLUDES +=  \
 -ICore/Inc/porting/smsplusgx \
 -ICore/Inc/porting/pce \
 -ICore/Inc/porting/msx \
+-ICore/Inc/porting/amiga \
 -ICore/Inc/porting/wsv \
 -ICore/Inc/porting/gw \
 -ICore/Inc/porting/gwenesis \
@@ -590,7 +592,7 @@ $(BUILD_DIR)/core/rg_main.o: Core/Inc/githash.h
 # Run parse_roms.py to generate information about the roms
 $(BUILD_DIR)/rom_files.txt: FORCE | $(BUILD_DIR)
 	$(V)$(ECHO) [ BASH ] Checking for updated roms
-	$(V)./scripts/update_rom_files.sh build/rom_files.txt roms/gb roms/nes roms/sms roms/gg roms/col roms/pce roms/sg roms/msx roms/gw roms/wsv roms/md roms/a7800 roms/amstrad roms/tama
+	$(V)./scripts/update_rom_files.sh build/rom_files.txt roms/gb roms/nes roms/sms roms/gg roms/col roms/pce roms/sg roms/msx roms/gw roms/wsv roms/md roms/a7800 roms/amstrad roms/tama roms/amiga
 
 $(BUILD_DIR)/roms.a: $(BUILD_DIR)/rom_files.txt parse_roms.py
 	$(V)$(ECHO) [ PYTHON3 ] $(notdir $<)

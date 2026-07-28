@@ -59,7 +59,10 @@ _estack = _stack_top;    /* end of RAM */
 _Heap_Size = 32 * 1024;     /* required amount of heap */
 
 _Stack_Redzone_Size = 256;  /* size of stack overflow protection */
-_Min_Stack_Size = 20 * 1024; /* required amount of stack */
+_Min_Stack_Size = 30 * 1024; /* raised from 20K for the Amiga core: its
+   launch overflowed into the redzone on top of retro-go's own call depth.
+   The standalone image proves the machine itself under 16K; the DTCM padding
+   this eats was measured at 11,568 spare before the change. */ /* required amount of stack */
 
 
 /* Useful for scripts */

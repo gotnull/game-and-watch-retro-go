@@ -1389,7 +1389,17 @@ __attribute__((optimize("-O0"))) static void MPU_Config(void)
   MPU_InitStruct.BaseAddress = 0x30000000;
   MPU_InitStruct.Size = MPU_REGION_SIZE_128KB;
   MPU_InitStruct.SubRegionDisable = 0x0;
-  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+  /*
+   * TEX level 1 (Normal, non-cacheable), NOT level 0. With TEX=0/C=0/B=0 this
+   * region is Strongly-Ordered, and the ARMv7-M architecture faults two
+   * things there that plain stores tolerate: unaligned accesses and
+   * LDREX/STREX exclusives. The Amiga core keeps a Rust AtomicBool in this
+   * bank, and its first swap() bus-faulted at the same address on every
+   * launch - after the RAM itself had been proven good by a full 128K scrub.
+   * Normal non-cacheable permits atomics and changes nothing for the audio
+   * DMA, which only needs the region uncached.
+   */
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;
   MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
   MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
   MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;

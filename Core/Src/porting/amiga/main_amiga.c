@@ -81,6 +81,20 @@ static uint8_t amiga_framebuffer[320 * 240]
  * ------------------------------------------------------------------------ */
 static void ltdc_enter_indexed(void)
 {
+    /*
+     * Silence retro-go's display machinery FIRST. Its LTDC line interrupt
+     * drives an lcd_swap pipeline that reprograms CFBAR and the pixel format
+     * every frame - measured on hardware: seconds after this function ran,
+     * the layer read PFCR=2 (RGB565) and CFBAR=.lcd2 again, while the panel
+     * showed the abandoned menu buffer. The machine was running perfectly
+     * underneath; its picture just never stayed on screen for more than a
+     * frame. This core paces itself on SRCR_VBR and needs no LTDC interrupt;
+     * everything is restored by the exit-is-reset convention.
+     */
+    NVIC_DisableIRQ(LTDC_IRQn);
+    NVIC_DisableIRQ(LTDC_ER_IRQn);
+    LTDC->IER = 0;
+
     LTDC_Layer1->CFBAR  = (uint32_t)amiga_framebuffer;
     LTDC_Layer1->PFCR   = 5;                              /* L8 */
     LTDC_Layer1->CFBLR  = (320u << 16) | (320u + 3u);     /* 1 byte per pixel */
@@ -160,15 +174,42 @@ void app_main_amiga(uint8_t load_state, uint8_t start_paused, uint8_t save_slot)
      * .data copy that a C runtime would normally do happen right here, and
      * they MUST precede the first fcamiga call.
      */
-    extern uint8_t __amiga_bss_start__, __amiga_bss_end__;
+    /*
+     * Enable the AHB SRAM clocks FIRST. SystemInit only does this under
+     * DATA_IN_D2_SRAM, which retro-go does not define - nothing else in the
+     * firmware ever bulk-writes this bank from the CPU, so the clocks have
+     * been off since reset and the first memset into SRAM2 bus-faulted.
+     * Found via the exception frame: r0/r1/r2 were perfect and the write
+     * still died; AHB2ENR read back zero.
+     */
+    RCC->AHB2ENR |= RCC_AHB2ENR_AHBSRAM1EN | RCC_AHB2ENR_AHBSRAM2EN;
+    (void)RCC->AHB2ENR;
+
+    /*
+     * Initialise the ENTIRE bank with pure 64-bit stores before anything
+     * narrower touches it. These SRAMs are ECC-protected and, with their
+     * clocks off since reset, the ECC bits hold garbage. A 32-bit store is a
+     * read-modify-write against that garbage and bus-faults - which is why a
+     * plain memset here died at a DIFFERENT address on every run (BFAR
+     * 0x30012064 one boot, 0x30017B20 the next) while SWD pokes worked.
+     * Doubleword writes replace the whole ECC granule and never read.
+     */
+    /*
+     * Zero the bank once with aligned doubleword stores. Keeps the ECC clean
+     * on first touch and costs nothing measurable at 280MHz.
+     */
+    for (volatile uint64_t *p64 = (uint64_t *)0x30000000u;
+         p64 < (uint64_t *)0x30020000u; p64++) {
+        *p64 = 0;
+    }
+
     extern uint8_t __amiga_data_start__, __amiga_data_end__, __amiga_data_load__;
-    memset(&__amiga_bss_start__, 0,
-           (size_t)(&__amiga_bss_end__ - &__amiga_bss_start__));
     memcpy(&__amiga_data_start__, &__amiga_data_load__,
            (size_t)(&__amiga_data_end__ - &__amiga_data_start__));
 
     build_column_map();
     ltdc_enter_indexed();
+
 
     /*
      * Which files play which role. The launched entry is in ROM_DATA; if it

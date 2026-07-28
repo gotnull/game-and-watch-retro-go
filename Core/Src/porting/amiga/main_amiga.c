@@ -32,6 +32,7 @@
 #include "main_amiga.h"
 #include "appid.h"
 #include "gw_lcd.h"
+#include "gw_audio.h"
 #include "gw_buttons.h"
 #include "main.h"
 #include "rom_manager.h"
@@ -168,6 +169,16 @@ void app_main_amiga(uint8_t load_state, uint8_t start_paused, uint8_t save_slot)
     odroid_system_init(APPID_AMIGA, 44100);
 
     /*
+     * Paula produces 44,118Hz stereo; the SAI runs at 44,100. The 0.04%
+     * difference is far below audibility and simply lets the ring drain
+     * fractionally faster than it fills. 44,118 / 50.02 frames = 882
+     * samples a frame, which is exactly what each DMA half holds.
+     */
+    audio_clear_active_buffer();
+    audio_clear_inactive_buffer();
+    audio_start_playing(882);
+
+    /*
      * Bring the staticlib's spilled statics to life. The linker parks them in
      * AHBRAM (DTCM cannot hold them alongside retro-go's own data), inside a
      * NOLOAD region retro-go's startup never touches - so the zeroing and the
@@ -291,15 +302,37 @@ void app_main_amiga(uint8_t load_state, uint8_t start_paused, uint8_t save_slot)
 
         amiga_run_frame();
 
-        /* Paula fills its ring regardless; drain it so it never backs up.
-           Routing it to the speaker is a later slice. */
-        amiga_drain_audio(audio_scratch, 2048);
+        /*
+         * Paula to the speaker: drain one frame's worth of stereo, downmix
+         * to mono into the DMA half the hardware is not currently playing.
+         * The downmix halves each channel first - the sum of two full-scale
+         * channels would clip, and this speaker is not worth clipping for.
+         */
+        {
+            const uint32_t got = amiga_drain_audio(audio_scratch, 882 * 2);
+            int16_t *out = audio_get_inactive_buffer();
+            const uint32_t frames_got = got / 2;
+            for (uint32_t i = 0; i < 882; i++) {
+                if (i < frames_got) {
+                    out[i] = (int16_t)((audio_scratch[2 * i] / 2)
+                                     + (audio_scratch[2 * i + 1] / 2)) / 2;
+                } else {
+                    out[i] = 0;
+                }
+            }
+        }
 
         load_clut(palettes);
-        blit(capture, rows, stride);
 
-        /* Pace to the panel: request the shadow reload at vblank and wait. */
+        /*
+         * Wait for vblank BEFORE blitting, then blit immediately - the same
+         * ordering the standalone image settled on. One framebuffer means
+         * the beam reads what the CPU writes; blitting just after vblank
+         * keeps the CPU ahead of it for the whole frame, where blitting just
+         * before showed as flickering bands below the image.
+         */
         LTDC->SRCR = LTDC_SRCR_VBR;
         while (LTDC->SRCR & LTDC_SRCR_VBR) { }
+        blit(capture, rows, stride);
     }
 }

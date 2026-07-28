@@ -174,6 +174,17 @@ MEMORY
 /* Define output sections */
 SECTIONS
 {
+  /*
+   * The Amiga staticlib is built panic=abort and nothing in it unwinds, but
+   * its objects still carry exception-index entries. Keeping them would need
+   * PREL31 relocations spanning from internal flash to the XIP code at
+   * 0x90000000, which cannot be encoded - so they go, archive-wide.
+   */
+  /DISCARD/ :
+  {
+    *libfcamiga_gw.a:(.ARM.exidx* .ARM.extab*)
+  }
+
   ._itcram :
   {
     __itcram_start__ = .;
@@ -249,6 +260,12 @@ SECTIONS
     __extflash_end_start__ = .;
     . = ALIGN(4);
     __extflash_text_start__ = .;
+    /*
+     * The Amiga core executes in place from here, the way the SNES ports do.
+     * Measured on this console's OCTOSPI: XIP costs about 6% over internal
+     * flash for this workload (gandw AMIGA-PORT.md).
+     */
+    *libfcamiga_gw.a:(.text .text* .rodata .rodata*)
     *(.extflash_text)
     . = ALIGN(4);
     __extflash_text_end__ = .;
@@ -644,8 +661,29 @@ SECTIONS
     *(.audio)
     *(.ahb)
     . = ALIGN(4);
+    /* Musashi's 64K per-opcode cycle table. Built at runtime, DMA never
+       touches it, and this bank has 124K spare. */
+    . = ALIGN(32);
+    KEEP(*(.amiga_sram4_table))
+    /*
+     * Every static the Amiga staticlib owns, spilled here from DTCM: with
+     * retro-go's own ~80K of DTCM data plus the launcher stack, fcamiga's
+     * ~40K of state overflowed the 128K bank outright. This section is
+     * NOLOAD, so app_main_amiga zeroes the bss range and copies the data
+     * range from flash ITSELF, before the first fcamiga call - retro-go's
+     * startup no longer knows these symbols exist.
+     */
+    . = ALIGN(4);
+    __amiga_bss_start__ = .;
+    *libfcamiga_gw.a:(.bss .bss* COMMON)
+    . = ALIGN(4);
+    __amiga_bss_end__ = .;
     __ahbram_end__ = .;
   } > AHBRAM
+
+
+
+
 
   /* The startup code goes first into FLASH */
   .isr_vector :
@@ -720,8 +758,12 @@ SECTIONS
 
     . = ALIGN(4);
     _sdata = .;        /* create a global symbol at data start */
-    *(.data)           /* .data sections */
-    *(.data*)          /* .data* sections */
+    /* EXCLUDE_FILE: the Amiga staticlib's statics spill to AHBRAM instead -
+       DTCM cannot hold them alongside retro-go's own data. Without the
+       exclusion, these earlier patterns claim them first and the spill
+       sections at the tail of this script receive nothing. */
+    *(EXCLUDE_FILE (*libfcamiga_gw.a) .data)
+    *(EXCLUDE_FILE (*libfcamiga_gw.a) .data*)
 
     . = ALIGN(4);
     _edata = .;        /* define a global symbol at data end */
@@ -749,9 +791,10 @@ SECTIONS
     /* This is used by the startup in order to initialize the .bss secion */
     _sbss = .;         /* define a global symbol at bss start */
     __bss_start__ = _sbss;
-    *(.bss)
-    *(.bss*)
-    *(COMMON)
+    /* Same exclusion as .data above, same reason. */
+    *(EXCLUDE_FILE (*libfcamiga_gw.a) .bss)
+    *(EXCLUDE_FILE (*libfcamiga_gw.a) .bss*)
+    *(EXCLUDE_FILE (*libfcamiga_gw.a) COMMON)
 
     . = ALIGN(4);
     _ebss = .;         /* define a global symbol at bss end */
@@ -799,4 +842,64 @@ SECTIONS
   }
 
   .ARM.attributes 0 : { *(.ARM.attributes) }
+  /*
+   * The Amiga 500 machine's memory, overlapping the LCD framebuffers and the
+   * overlay arena - the same bargain every .overlay_* section already makes,
+   * taken one step further. The Amiga core drives its own L8 LTDC layer and
+   * never touches .lcd1/.lcd2, and no other core is resident while it runs.
+   * Exit is NVIC_SystemReset, so nothing needs restoring on the way out.
+   *
+   * Section names are fcamiga's own (.amiga_d2_table is the 256K jump table -
+   * named for a different chip's bank, kept because it is baked into vendored
+   * Musashi source). Budget: 512K + 256K + 176,640 + 76,800 = 1,041,728 of
+   * the 1,048,576-byte AXI SRAM.
+   */
+  /*
+   * The staticlib's initialised data. Lives in AHBRAM, load image in internal
+   * flash, copied by app_main_amiga. DEFINED HERE AT THE TAIL on purpose: an
+   * output section with AT> FLASH takes its load address in script order, and
+   * an earlier draft placed this before .isr_vector - which silently claimed
+   * 0x08000000, evicted the vector table, and bricked boot into a fault loop
+   * with BFAR 0xFFFFFFFC. The vector table must be the first thing in flash;
+   * everything with a flash LMA belongs after it.
+   */
+  ._amiga_data :
+  {
+    . = ALIGN(4);
+    __amiga_data_start__ = .;
+    *libfcamiga_gw.a:(.data .data*)
+    . = ALIGN(4);
+    __amiga_data_end__ = .;
+  } > AHBRAM AT> FLASH
+  __amiga_data_load__ = LOADADDR(._amiga_data);
+
+  .amiga_chip 0x24000000 (NOLOAD) :
+  {
+    . = ALIGN(32);
+    KEEP(*(.amiga_chip))
+  }
+
+  .amiga_jump 0x24080000 (NOLOAD) :
+  {
+    . = ALIGN(32);
+    KEEP(*(.amiga_d2_table))
+  }
+
+  .amiga_capture 0x240C0000 (NOLOAD) :
+  {
+    . = ALIGN(32);
+    KEEP(*(.amiga_capture))
+  }
+
+  .amiga_fb 0x240EB200 (NOLOAD) :
+  {
+    . = ALIGN(32);
+    KEEP(*(.amiga_fb))
+  }
+
+  ASSERT(SIZEOF(.amiga_chip) == 0 || SIZEOF(.amiga_chip) == 512K,
+         "Amiga Chip RAM must be exactly 512K")
+  ASSERT(SIZEOF(.amiga_fb) == 0 || (0x240EB200 + SIZEOF(.amiga_fb)) <= 0x24100000,
+         "Amiga banks overflow AXI SRAM")
+
 }

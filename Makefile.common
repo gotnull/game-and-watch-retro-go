@@ -570,6 +570,42 @@ vpath %.s $(sort $(dir $(SDK_ASM_SOURCES)))
 
 OBJECTS += $(addprefix $(BUILD_DIR)/,roms.a)
 
+# The Amiga 500 machine: rusty-nail's fcamiga, wrapped as a C-callable
+# staticlib by the gandw repo's fcamiga-gw crate. The rule always runs cargo
+# and lets cargo decide what changed - it tracks the cross-repo path
+# dependency far better than make could, and uncommitted changes next door
+# are picked up, which is how the emulator gets developed.
+#
+# musashi410 (MIT) and not the default core: retro-go is GPL v2 and the
+# default musashi332 fork's non-commercial notice cannot ship inside it.
+AMIGA_CRATE = $(HOME)/development/gandw/firmware/fcamiga-gw
+AMIGA_LIB = $(AMIGA_CRATE)/target/thumbv7em-none-eabihf/release/libfcamiga_gw.a
+
+# The staticlib arrives carrying passengers: whole newlib members (snprintf
+# hijacked the menu's libc from extflash) and compiler-builtins (__popcountsi2
+# hijacked libgcc - MPU_Config faulted calling it before OSPI mapping existed).
+# Any symbol the archive shadows gets placed in EXTERNAL flash, and anything
+# that runs before memory-mapped mode then dies with an instruction bus error.
+#
+# So: whitelist. Keep only fcamiga's own code (rcgu objects) and the vendored
+# Musashi (m68k*, softfloat, fcamiga_bus); delete every other member. Their
+# symbols resolve to retro-go's real newlib and libgcc in internal flash.
+$(AMIGA_LIB): FORCE
+	cd $(AMIGA_CRATE) && cargo build --release --target thumbv7em-none-eabihf
+	$(V)# Delete the shadowing crates and ONLY them. compiler_builtins also
+	$(V)# compiles as rcgu objects, so "keep rcgu" kept the main offender -
+	$(V)# its extflash memmove was reached from the BSOD printer itself,
+	$(V)# turning every fault into a double-fault lockup. Kept: fcamiga's own
+	$(V)# rcgu objects, Rust core, and the cc-built Musashi. Deleted: newlib
+	$(V)# members, compiler_builtins rcgu members, and the bare hash-named
+	$(V)# builtin objects that are not Musashi.
+	$(V)$(GCC_PATH)/arm-none-eabi-ar t $(AMIGA_LIB) | \
+	    grep -vE '(m68k|softfloat|fcamiga|musashi)' | \
+	    grep -E '(compiler_builtins|lib[cm]_a-|^[0-9a-f]{16}-)' | \
+	    xargs $(GCC_PATH)/arm-none-eabi-ar d $(AMIGA_LIB) 2>/dev/null || true
+
+FORCE:
+
 # function used to generate prerequisite rules for SDK objects
 define sdk_obj_prereq_gen
 $(BUILD_DIR)/$(patsubst %.c,%.o,$(patsubst %.s,%.o,$(notdir $1))): $1
@@ -660,9 +696,9 @@ $(BUILD_DIR)/%.o: %.s Makefile.common Makefile $(BUILD_DIR)/config.h | $(BUILD_D
 	$(V)$(ECHO) [ AS ] $(notdir $<)
 	$(V)$(AS) -c $(CFLAGS) $< -o $@
 
-$(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(GNUBOY_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(TAMA_OBJECTS) Makefile.common Makefile $(LDSCRIPT)
+$(BUILD_DIR)/$(TARGET).elf: $(AMIGA_LIB) $(OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(GNUBOY_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(TAMA_OBJECTS) Makefile.common Makefile $(LDSCRIPT)
 	$(V)$(ECHO) [ LD ] $(notdir $@)
-	$(V)$(CC) $(OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(GNUBOY_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(TAMA_OBJECTS) $(LDFLAGS) -o $@
+	$(V)$(CC) $(OBJECTS) $(AMIGA_LIB) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(GNUBOY_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(TAMA_OBJECTS) $(LDFLAGS) -o $@
 	$(V)./scripts/extflash_size.sh $@
 
 $(BUILD_DIR)/core/%.o: %.c Makefile.common Makefile $(SDK_HEADERS) $(BUILD_DIR)/config.h | $(BUILD_DIR)

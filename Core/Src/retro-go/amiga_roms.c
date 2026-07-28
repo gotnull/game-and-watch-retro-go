@@ -12,20 +12,21 @@
 #endif
 extern const rom_system_t amiga_system;
 extern const uint8_t _binary__Users_fulvio_development_game_and_watch_retro_go_roms_amiga_Kickstart_v1_3_rom_start[];
+extern const uint8_t _binary__Users_fulvio_development_game_and_watch_retro_go_roms_amiga_Kickstart_v1_3_img_start[];
 uint8_t SAVE_AMIGA_0[0]  __attribute__((section (".saveflash"))) __attribute__((aligned(4096)));
 
 const retro_emulator_file_t amiga_roms[] EMU_DATA = {
 	{
 #if CHEAT_CODES == 1
-		.id = 3,
+		.id = 2,
 #endif
 		.name = "Kickstart v1.3",
 		.ext = "rom",
 		.address = _binary__Users_fulvio_development_game_and_watch_retro_go_roms_amiga_Kickstart_v1_3_rom_start,
 		.size = 262144,
 		#if COVERFLOW != 0
-		.img_address = NULL,
-		.img_size = 0,
+		.img_address = _binary__Users_fulvio_development_game_and_watch_retro_go_roms_amiga_Kickstart_v1_3_img_start,
+		.img_size = 4642,
 		#endif
 		.save_address = SAVE_AMIGA_0,
 		.save_size = sizeof(SAVE_AMIGA_0),

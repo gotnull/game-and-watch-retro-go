@@ -46,6 +46,44 @@ def addr2line(a):
                          capture_output=True, text=True).stdout.strip()
     return out.replace("\n", " @ ")
 
+def read_panic_mark():
+    """If the Rust half panicked, name the exact file and line."""
+    nm = subprocess.run(["arm-none-eabi-nm", ELF], capture_output=True, text=True).stdout
+    m = re.search(r"^([0-9a-f]+) . AMIGA_PANIC_MARK", nm, re.M)
+    if not m:
+        return
+    addr = int(m.group(1), 16)
+    with tempfile.NamedTemporaryFile("w", suffix=".cfg", delete=False) as f:
+        binp = f.name + ".mark"
+        f.write(f"""source [find interface/cmsis-dap.cfg]\ntransport select swd
+source [find target/stm32h7x.cfg]\nadapter speed 1000\ninit\nhalt
+dump_image {{{binp}}} 0x{addr:08x} 16\nresume\nshutdown\n""")
+        cfg = f.name
+    try:
+        subprocess.run([OPENOCD, "-f", cfg], capture_output=True)
+        magic, fptr, flen, line = struct.unpack("<4I", open(binp, "rb").read())
+    finally:
+        os.unlink(cfg)
+        if os.path.exists(binp):
+            os.unlink(binp)
+    if magic != 0x50414E43:
+        return
+    with tempfile.NamedTemporaryFile("w", suffix=".cfg", delete=False) as f:
+        binp = f.name + ".str"
+        f.write(f"""source [find interface/cmsis-dap.cfg]\ntransport select swd
+source [find target/stm32h7x.cfg]\nadapter speed 1000\ninit\nhalt
+dump_image {{{binp}}} 0x{fptr:08x} {min(flen, 256)}\nresume\nshutdown\n""")
+        cfg = f.name
+    try:
+        subprocess.run([OPENOCD, "-f", cfg], capture_output=True)
+        fname = open(binp, "rb").read().decode(errors="replace")
+    finally:
+        os.unlink(cfg)
+        if os.path.exists(binp):
+            os.unlink(binp)
+    print(f"\nRUST PANIC at {fname}:{line}")
+
+
 def main():
     with tempfile.NamedTemporaryFile("w", suffix=".cfg", delete=False) as f:
         stackbin = f.name + ".stack"
@@ -81,3 +119,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    read_panic_mark()

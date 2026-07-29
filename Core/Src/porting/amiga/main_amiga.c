@@ -169,16 +169,6 @@ void app_main_amiga(uint8_t load_state, uint8_t start_paused, uint8_t save_slot)
     odroid_system_init(APPID_AMIGA, 44100);
 
     /*
-     * Paula produces 44,118Hz stereo; the SAI runs at 44,100. The 0.04%
-     * difference is far below audibility and simply lets the ring drain
-     * fractionally faster than it fills. 44,118 / 50.02 frames = 882
-     * samples a frame, which is exactly what each DMA half holds.
-     */
-    audio_clear_active_buffer();
-    audio_clear_inactive_buffer();
-    audio_start_playing(882);
-
-    /*
      * Bring the staticlib's spilled statics to life. The linker parks them in
      * AHBRAM (DTCM cannot hold them alongside retro-go's own data), inside a
      * NOLOAD region retro-go's startup never touches - so the zeroing and the
@@ -217,6 +207,20 @@ void app_main_amiga(uint8_t load_state, uint8_t start_paused, uint8_t save_slot)
     extern uint8_t __amiga_data_start__, __amiga_data_end__, __amiga_data_load__;
     memcpy(&__amiga_data_start__, &__amiga_data_load__,
            (size_t)(&__amiga_data_end__ - &__amiga_data_start__));
+
+    /*
+     * Audio LAST among the memory bring-up: audio_clear_* memsets the DMA
+     * buffer at 0x30000000, and doing that before the AHB SRAM clock enable
+     * above recreated the launch bus-fault one line earlier than the
+     * original. Order in this function is load-bearing.
+     *
+     * Paula produces 44,118Hz stereo; the SAI runs at 44,100. The 0.04%
+     * difference is far below audibility. 44,118 / 50.02 frames = 882
+     * samples a frame, exactly one DMA half (AUDIO_SAMPLE_RATE / 50).
+     */
+    audio_clear_active_buffer();
+    audio_clear_inactive_buffer();
+    audio_start_playing(882);
 
     build_column_map();
     ltdc_enter_indexed();

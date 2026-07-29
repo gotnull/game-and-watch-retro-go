@@ -132,6 +132,15 @@ static void build_column_map(void)
 
 static void blit(const uint8_t *capture, uint32_t rows, uint32_t stride)
 {
+    /*
+     * Clean the D-cache in 8-row chunks AS the blit descends, not once at the
+     * end. The framebuffer is write-back cached and the LTDC reads RAM: with
+     * a single clean after the loop, rows the beam reached before the clean
+     * showed stale data - a faint flicker band below the image that survived
+     * moving the blit to just-after-vblank. Chunked cleaning keeps the
+     * written-and-visible boundary at most eight rows behind the pen, and the
+     * blit outruns the 65us-per-line beam by an order of magnitude.
+     */
     const uint32_t lines = rows < 240 ? rows : 240;
     for (uint32_t y = 0; y < lines; y++) {
         const uint8_t *src = capture + y * stride;
@@ -139,8 +148,17 @@ static void blit(const uint8_t *capture, uint32_t rows, uint32_t stride)
         for (int x = 0; x < 320; x++) {
             dst[x] = src[column_map[x]];
         }
+        if ((y & 7) == 7) {
+            SCB_CleanDCache_by_Addr((uint32_t *)(amiga_framebuffer + (y - 7) * 320),
+                                    8 * 320);
+        }
     }
-    SCB_CleanDCache_by_Addr((uint32_t *)amiga_framebuffer, sizeof amiga_framebuffer);
+    /* Tail rows not covered by the last full chunk. */
+    SCB_CleanDCache_by_Addr((uint32_t *)(amiga_framebuffer + (lines & ~7u) * 320),
+                            (lines & 7u) ? (lines & 7u) * 320 : 0);
+    if ((lines & 7u) == 0 && lines) {
+        /* lines was a multiple of 8: everything is already clean. */
+    }
 }
 
 /* Failures have no console to print to; they have 76,800 pixels. */

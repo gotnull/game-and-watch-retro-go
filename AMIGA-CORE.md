@@ -45,8 +45,13 @@ vblank) and a formal PAUSE-exits-cleanly pass (slice 4).
 
 ```sh
 export GCC_PATH=~/development/toolchains/arm-gnu-toolchain-14.2.rel1-darwin-arm64-arm-none-eabi/bin
-make GNW_TARGET=mario COVERFLOW=1 BIG_BANK=1 -j8
+make GNW_TARGET=mario COVERFLOW=1 BIG_BANK=1 PYTHON3=/tmp/z3venv/bin/python -j8
 ```
+
+`PYTHON3` must point at a Pillow-equipped interpreter (`python3 -m venv` +
+`pip install pillow` if /tmp/z3venv is gone). Without it, cover art fails to
+pack SILENTLY - parse_roms catches the conversion error with a bare `pass`,
+and the menu shows blank covers with no message anywhere.
 
 ROMs: `roms/amiga/` takes a PRE-SWAPPED Kickstart as `.rom`
 (`tools/kickstart_swap.py` does the swap - the core executes it in place and
@@ -113,10 +118,10 @@ flash template).
 
 ## Open items, in order
 
-1. **Confirm the flicker fix and clean PAUSE exit** (the last flashed build).
-2. **Cover art for the Kickstart entry** does not show; the .png is beside
-   the .rom - trace parse_roms' cover packing for the amiga system.
-3. **Commit-and-push hygiene**: rusty-nail has two local commits (cycle-table
+1. **Confirm the flicker fix** (chunked D-cache clean chasing the blit).
+   PAUSE-exit is confirmed working; cover art and the About credit
+   ("gotnull", per the fork chain's convention) are in as of 29th July.
+2. **Commit-and-push hygiene**: rusty-nail has two local commits (cycle-table
    trim, chipset reset) that only the owner pushes.
 4. **Publishability**: the fork references the fcamiga-gw crate by absolute
    home path. Before a public PR it needs vendoring or a submodule, and a

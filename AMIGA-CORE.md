@@ -25,9 +25,14 @@ vblank) and a formal PAUSE-exits-cleanly pass (slice 4).
 ## Architecture in five lines
 
 - The machine is a Rust staticlib: `~/development/gandw/firmware/fcamiga-gw`
-  (path in `Makefile.common` as `AMIGA_CRATE`). It builds the WORKING TREE of
-  `~/development/rusty-nail/fcamiga` - uncommitted changes next door are
-  picked up, which is how the emulator gets developed.
+  (path in `Makefile.common` as `AMIGA_CRATE`). Its fcamiga dependency is a
+  git dep on the LOCAL rusty-nail clone **pinned to a commit** (see that
+  crate's Cargo.toml). A parallel session develops fcamiga in rusty-nail;
+  the pin keeps their half-finished edits off the console - one unpinned
+  build shipped a mid-edit panic that presented as a bare watchdog reset.
+  To take their next drop: bump `rev`, `cargo update -p fcamiga`, rebuild.
+  If a drop panics, `tools/debug/fault-scan.py` prints the exact file:line
+  from the wrapper's panic marker.
 - Its code executes in place from EXTERNAL flash like the SNES ports
   (`*libfcamiga_gw.a:` matcher in the ld). Measured XIP cost: ~6%.
 - Chip RAM (512K) sits at 0x24000000 OVER `.lcd1/.lcd2` and the overlay
@@ -118,10 +123,15 @@ flash template).
 
 ## Open items, in order
 
-1. **Confirm the flicker fix** (chunked D-cache clean chasing the blit).
-   PAUSE-exit is confirmed working; cover art and the About credit
-   ("gotnull", per the fork chain's convention) are in as of 29th July.
-2. **Commit-and-push hygiene**: rusty-nail has two local commits (cycle-table
+1. **Confirm the pinned build** (fcamiga 57dcf65): boots to the insert
+   screen, flicker gone (chunked D-cache clean), cover art shows on the
+   Kickstart entry, gotnull in About. PAUSE-exit already confirmed.
+2. **Compressed disks on stock flash**: upstream added
+   `insert_compressed_disk` (commit 3ac9f62). If a compressed cracktro
+   ADF lands under the ~290K of free external flash, something bootable
+   with MUSIC fits before the 64MB chip arrives. Expose it in fcamiga-gw,
+   extend parse_roms/main_amiga for a compressed extension, test.
+3. **Commit-and-push hygiene**: rusty-nail has two local commits (cycle-table
    trim, chipset reset) that only the owner pushes.
 4. **Publishability**: the fork references the fcamiga-gw crate by absolute
    home path. Before a public PR it needs vendoring or a submodule, and a
